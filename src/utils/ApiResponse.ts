@@ -11,7 +11,7 @@ class ApiResponse<T> {
    * @param data - The data to be included in the response.
    * @param message - A descriptive message for the response (default: "Success").
    */
-  constructor(statusCode: number, data: T, message: string = "Success") {
+  constructor(statusCode: number, data: T, message = "Success") {
     this.statusCode = statusCode;
     this.data = data;
     this.message = message;

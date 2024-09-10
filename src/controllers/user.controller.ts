@@ -249,7 +249,7 @@ const changeCurrentPassword = asyncHandler(
     const { oldPassword, newPassword } = req.body;
 
     // Ensure the user is authenticated
-    const userId = (req as any).user?._id;
+    const userId = req.user?._id;
 
     if (!userId) {
       throw new ApiError(401, "User is not authenticated.");
@@ -282,7 +282,7 @@ const changeCurrentPassword = asyncHandler(
  * @route GET /current-user
  */
 const getCurrentUser = asyncHandler(async (req: Request, res: Response) => {
-  const user = (req as any).user;
+  const user = req.user;
   // Ensure the user is authenticated
   if (!user) {
     throw new ApiError(401, "User is not authenticated.");

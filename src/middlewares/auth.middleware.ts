@@ -40,7 +40,7 @@ export const verifyJWT = asyncHandler(
       }
 
       // Attach user to request object
-      (req as any).user = user;
+      req.user = user;
       next();
     } catch (error) {
       throw new ApiError(
