@@ -1,9 +1,32 @@
 import { Request, Response } from "express";
-import { User } from "../models/user.model";
+import { IUser, User } from "../models/user.model";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
 import jwt from "jsonwebtoken";
+import nodemailer from "nodemailer";
+
+// Function to send verification email
+const sendVerificationEmail = async (user: IUser, token: string) => {
+  const transporter = nodemailer.createTransport({
+    service: "Gmail",
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+
+  const verificationLink = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: user.email,
+    subject: "Email Verification",
+    html: `<p>Please verify your email by clicking the link below:</p><a href="${verificationLink}">Verify Email</a>`,
+  };
+
+  await transporter.sendMail(mailOptions);
+};
 
 /**
  * Generates access and refresh tokens for a given user ID.
@@ -37,7 +60,7 @@ const generateAccessAndRefreshTokens = async (userId: unknown) => {
  * @route POST /register
  */
 const registerUser = asyncHandler(async (req: Request, res: Response) => {
-  const { fullName, email, username, password } = req.body;
+  const { fullName, email, username, password, phoneNumber } = req.body;
 
   // Validate input fields
   if (
@@ -64,7 +87,11 @@ const registerUser = asyncHandler(async (req: Request, res: Response) => {
     email,
     password,
     username: username.toLowerCase(),
+    phoneNumber,
   });
+
+  const emailVerificationToken = newUser.generateEmailVerificationToken();
+  await sendVerificationEmail(newUser, emailVerificationToken);
 
   // Retrieve the created user without sensitive fields
   const sanitizedUser = await User.findById(newUser._id).select(
@@ -335,6 +362,41 @@ const updateAccountDetails = asyncHandler(
   }
 );
 
+const verifyEmail = asyncHandler(async (req: Request, res: Response) => {
+  const { token } = req.query;
+
+  if (!token) {
+    throw new ApiError(400, "Verification token is missing.");
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(
+      token as string,
+      process.env.EMAIL_VERIFICATION_SECRET as string
+    ) as { _id: string };
+  } catch (error) {
+    throw new ApiError(400, "Invalid or expired token.");
+  }
+
+  const user = await User.findById(decoded._id);
+
+  if (!user) {
+    throw new ApiError(404, "User not found.");
+  }
+
+  if (user.isEmailVerified) {
+    throw new ApiError(400, "Email is already verified.");
+  }
+
+  user.isEmailVerified = true;
+  await user.save();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, {}, "Email verified successfully."));
+});
+
 export {
   registerUser,
   loginUser,
@@ -343,4 +405,5 @@ export {
   changeCurrentPassword,
   getCurrentUser,
   updateAccountDetails,
+  verifyEmail,
 };

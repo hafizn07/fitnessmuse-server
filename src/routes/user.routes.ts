@@ -7,6 +7,7 @@ import {
   refreshAccessToken,
   registerUser,
   updateAccountDetails,
+  verifyEmail,
 } from "../controllers/user.controller";
 import { verifyJWT } from "../middlewares/auth.middleware";
 
@@ -14,6 +15,7 @@ const router = Router();
 
 router.route("/register").post(registerUser);
 router.route("/login").post(loginUser);
+router.route('/verify-email').get(verifyEmail);
 
 //secured routes
 router.route("/logout").post(verifyJWT, logoutUser);

@@ -8,12 +8,15 @@ export interface IUser extends Document {
   email: string;
   fullName: string;
   password: string;
+  phoneNumber: string;
+  isEmailVerified: boolean;
   refreshToken?: string;
 
   // Method definitions
   isPasswordCorrect(password: string): Promise<boolean>;
   generateAccessToken(): string;
   generateRefreshToken(): string;
+  generateEmailVerificationToken(): string;
 }
 
 // User schema definition
@@ -44,6 +47,11 @@ const userSchema = new Schema<IUser>(
       type: String,
       required: [true, "Password is required"],
     },
+    phoneNumber: {
+      type: String,
+      required: true,
+    },
+    isEmailVerified: { type: Boolean, default: false },
     refreshToken: {
       type: String,
     },
@@ -94,6 +102,15 @@ userSchema.methods.generateRefreshToken = function (): string {
     {
       expiresIn: process.env.REFRESH_TOKEN_EXPIRY,
     }
+  );
+};
+
+// Method to generate an email verification token
+userSchema.methods.generateEmailVerificationToken = function (): string {
+  return jwt.sign(
+    { _id: this._id, email: this.email },
+    process.env.EMAIL_VERIFICATION_SECRET as string,
+    { expiresIn: "1h" }
   );
 };
 
