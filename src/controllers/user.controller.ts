@@ -1,31 +1,34 @@
 import { Request, Response } from "express";
+import jwt from "jsonwebtoken";
 import { IUser, User } from "../models/user.model";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
-import jwt from "jsonwebtoken";
-import nodemailer from "nodemailer";
+import { sendEmail } from "../utils/sendEmail";
 
-// Function to send verification email
+/**
+ * @description Sends a verification email to the user with a secure link to verify their email address.
+ *              This function constructs a verification URL using a unique token and the frontend URL.
+ *              The email contains a clickable link that directs the user to the email verification page.
+ * @param {IUser} user - The user object containing the user's details, including the email address to send the verification link to.
+ * @param {string} token - A unique verification token used to identify and validate the email verification request.
+ * @returns {Promise<void>} - Returns a promise that resolves when the email is successfully sent.
+ * @throws {Error} - Throws an error if the email fails to send due to network issues or other unexpected errors.
+ *
+ * @example
+ * // Example usage:
+ * const user = await User.findById(userId);
+ * const token = generateVerificationToken(user);
+ * await sendVerificationEmail(user, token);
+ */
 const sendVerificationEmail = async (user: IUser, token: string) => {
-  const transporter = nodemailer.createTransport({
-    service: "Gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
   const verificationLink = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
 
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
+  await sendEmail({
     to: user.email,
     subject: "Email Verification",
     html: `<p>Please verify your email by clicking the link below:</p><a href="${verificationLink}">Verify Email</a>`,
-  };
-
-  await transporter.sendMail(mailOptions);
+  });
 };
 
 /**
