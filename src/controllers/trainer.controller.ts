@@ -48,7 +48,10 @@ export const inviteTrainers = asyncHandler(
         continue;
       }
 
-      const existingTrainer = await Trainer.findOne({ email, gym: gymId });
+      const existingTrainer = await Trainer.findOne({
+        email,
+        "gyms.gymId": gymId,
+      });
       if (existingTrainer) {
         failedInvitations.push({
           email,
@@ -65,7 +68,7 @@ export const inviteTrainers = asyncHandler(
       const trainer = new Trainer({
         email,
         mpin,
-        gym: gymId,
+        gyms: [{ gymId, gymName: gym.name }],
         isInvitationAccepted: false,
         invitationToken,
       });
@@ -156,7 +159,7 @@ export const acceptTrainerInvitation = asyncHandler(
 );
 
 /**
- * @description Retrieve all trainers for a specific gym
+ * @description Retrieve all trainers for a specific gym, separating accepted and invitation pending trainers
  * @route GET /gyms/:gymId/trainers
  * @access Private (Gym Admin)
  */
@@ -165,17 +168,29 @@ export const getTrainersForGym = asyncHandler(
     const gymId = req.params.gymId;
 
     // Fetch trainers associated with the gym
-    const trainers = await Trainer.find({ gym: gymId });
+    const trainers = await Trainer.find({ "gyms.gymId": gymId });
 
     // If no trainers found, respond accordingly
     if (!trainers || trainers.length === 0) {
       throw new ApiError(404, "No trainers found for this gym");
     }
 
-    res.status(200).json({
-      status: 200,
-      data: trainers,
-      message: "Trainers retrieved successfully",
-    });
+    // Sanitize the response to show only relevant gym details for each trainer
+    const sanitizedTrainers = trainers.map((trainer) => ({
+      email: trainer.email,
+      name: trainer.name,
+      isInvitationAccepted: trainer.isInvitationAccepted,
+      gyms: trainer.gyms.filter((g) => g.gymId.toString() === gymId),
+    }));
+
+    res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          sanitizedTrainers,
+          "Trainers retrieved successfully"
+        )
+      );
   }
 );

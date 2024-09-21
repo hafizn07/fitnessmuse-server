@@ -6,7 +6,7 @@ export interface ITrainer extends Document {
   name: string;
   mpin: string;
   isInvitationAccepted: boolean;
-  gym: mongoose.Types.ObjectId;
+  gyms: { gymId: mongoose.Types.ObjectId; gymName: string }[];
   invitationToken: string;
 }
 
@@ -18,6 +18,7 @@ const trainerSchema = new Schema<ITrainer>(
       required: true,
       lowercase: true,
       trim: true,
+      unique: true,
     },
     name: {
       type: String,
@@ -31,11 +32,19 @@ const trainerSchema = new Schema<ITrainer>(
       type: Boolean,
       default: false,
     },
-    gym: {
-      type: Schema.Types.ObjectId,
-      ref: "Gym",
-      required: true,
-    },
+    gyms: [
+      {
+        gymId: {
+          type: Schema.Types.ObjectId,
+          ref: "Gym",
+          required: true,
+        },
+        gymName: {
+          type: String,
+          required: true,
+        },
+      },
+    ],
     invitationToken: {
       type: String,
     },
