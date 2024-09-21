@@ -16,7 +16,6 @@ const trainerSchema = new Schema<ITrainer>(
     email: {
       type: String,
       required: true,
-      unique: true,
       lowercase: true,
       trim: true,
     },

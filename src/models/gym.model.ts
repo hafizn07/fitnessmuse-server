@@ -15,6 +15,7 @@ export interface IGym extends Document {
   membershipTypes: string[];
   facilities: string[];
   admin: mongoose.Types.ObjectId;
+  status: "active" | "inactive";
 }
 
 // Gym schema definition
@@ -84,6 +85,11 @@ const gymSchema = new Schema<IGym>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+    status: {
+      type: String,
+      enum: ["active", "inactive"],
+      default: "active",
     },
   },
   {

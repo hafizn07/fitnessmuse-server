@@ -15,21 +15,21 @@ const generateMPIN = () =>
   Math.floor(100000 + Math.random() * 900000).toString();
 
 /**
- * @description Invite a trainer to join a specific gym. This controller
+ * @description Invite multiple trainers to join a specific gym. This controller
  *              validates the input, checks for existing invitations, and sends
- *              an invitation email with a secure link and MPIN. The trainer's
+ *              invitation emails with a secure link and MPIN. The trainer's
  *              details are sanitized before responding.
- * @route POST /gyms/:gymId/invite-trainer
+ * @route POST /gyms/:gymId/trainers/invite
  * @access Private (Gym Admin)
  */
-export const inviteTrainer = asyncHandler(
+export const inviteTrainers = asyncHandler(
   async (req: Request, res: Response) => {
-    const { email } = req.body;
+    const { emails } = req.body;
     const gymId = req.params.gymId;
 
-    // Validate that the email field is provided and not empty
-    if (!email?.trim()) {
-      throw new ApiError(400, "Email is required");
+    // Validate that emails are provided and not empty
+    if (!emails || !Array.isArray(emails) || emails.length === 0) {
+      throw new ApiError(400, "A list of emails is required");
     }
 
     // Retrieve the gym by its ID to ensure it exists
@@ -38,46 +38,71 @@ export const inviteTrainer = asyncHandler(
       throw new ApiError(404, "Gym not found");
     }
 
-    // Check if a trainer has already been invited to the gym with the same email
-    const existingTrainer = await Trainer.findOne({ email, gym: gymId });
-    if (existingTrainer) {
-      throw new ApiError(400, "Trainer already invited to this gym");
+    const invitedTrainers = [];
+    const failedInvitations = [];
+
+    for (const email of emails) {
+      // Validate email format and check if already invited
+      if (!email?.trim()) {
+        failedInvitations.push({ email, error: "Invalid email format" });
+        continue;
+      }
+
+      const existingTrainer = await Trainer.findOne({ email, gym: gymId });
+      if (existingTrainer) {
+        failedInvitations.push({
+          email,
+          error: "Trainer already invited to this gym",
+        });
+        continue;
+      }
+
+      // Generate a 6-digit MPIN and a secure invitation token
+      const mpin = generateMPIN();
+      const invitationToken = generateToken();
+
+      // Create a new trainer document with the initial invitation details
+      const trainer = new Trainer({
+        email,
+        mpin,
+        gym: gymId,
+        isInvitationAccepted: false,
+        invitationToken,
+      });
+
+      // Save the trainer
+      await trainer.save();
+
+      // Sanitize the trainer data before sending the response
+      const sanitizedTrainer = await Trainer.findById(trainer._id).select(
+        "-mpin -invitationToken"
+      );
+
+      // Send the invitation email
+      const confirmationLink = `${process.env.FRONTEND_URL}/trainer/confirm-invite?token=${invitationToken}`;
+      try {
+        await sendEmail({
+          to: email,
+          subject: "Gym Invitation",
+          text: `You have been invited to join the gym. Your MPIN is ${mpin}. Please click the link to accept the invitation: ${confirmationLink}`,
+        });
+        invitedTrainers.push(sanitizedTrainer); // Add sanitized trainer to invitedTrainers
+      } catch (error) {
+        failedInvitations.push({
+          email,
+          error: "Failed to send invitation email",
+        });
+      }
     }
 
-    // Generate a 6-digit MPIN and a secure invitation token
-    const mpin = generateMPIN();
-    const invitationToken = generateToken();
-
-    // Create a new trainer document with the initial invitation details
-    const trainer = new Trainer({
-      email,
-      mpin,
-      gym: gymId,
-      isInvitationAccepted: false,
-      invitationToken,
-    });
-
-    // Save the trainer
-    await trainer.save();
-
-    // Send the invitation email with the secure confirmation link
-    const confirmationLink = `${process.env.FRONTEND_URL}/trainer/confirm-invite?token=${invitationToken}`;
-    await sendEmail({
-      to: email,
-      subject: "Gym Invitation",
-      text: `You have been invited to join the gym. Your MPIN is ${mpin}. Please click the link to accept the invitation: ${confirmationLink}`,
-    });
-
-    // Retrieve the trainer data without sensitive fields for the response
-    const sanitizedTrainer = await Trainer.findById(trainer._id).select(
-      "-mpin -invitationToken"
-    );
-
-    // Send response
     res
       .status(201)
       .json(
-        new ApiResponse(201, sanitizedTrainer, "Trainer invited successfully")
+        new ApiResponse(
+          201,
+          { invitedTrainers, failedInvitations },
+          "Trainers invitation process completed"
+        )
       );
   }
 );
@@ -127,5 +152,30 @@ export const acceptTrainerInvitation = asyncHandler(
           "Invitation accepted successfully."
         )
       );
+  }
+);
+
+/**
+ * @description Retrieve all trainers for a specific gym
+ * @route GET /gyms/:gymId/trainers
+ * @access Private (Gym Admin)
+ */
+export const getTrainersForGym = asyncHandler(
+  async (req: Request, res: Response) => {
+    const gymId = req.params.gymId;
+
+    // Fetch trainers associated with the gym
+    const trainers = await Trainer.find({ gym: gymId });
+
+    // If no trainers found, respond accordingly
+    if (!trainers || trainers.length === 0) {
+      throw new ApiError(404, "No trainers found for this gym");
+    }
+
+    res.status(200).json({
+      status: 200,
+      data: trainers,
+      message: "Trainers retrieved successfully",
+    });
   }
 );
