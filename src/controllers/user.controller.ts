@@ -5,6 +5,7 @@ import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
 import { sendEmail } from "../utils/sendEmail";
+import { generateEmailTemplate } from "../utils/emailTemplate";
 
 /**
  * @description Sends a verification email to the user with a secure link to verify their email address.
@@ -24,10 +25,17 @@ import { sendEmail } from "../utils/sendEmail";
 const sendVerificationEmail = async (user: IUser, token: string) => {
   const verificationLink = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
 
+  const emailBody = generateEmailTemplate({
+    title: "Verify Your Email Address",
+    bodyContent: `Hello ${user.fullName},<br/>Please verify your email address to complete the registration process.`,
+    buttonText: "Verify Email",
+    buttonLink: verificationLink,
+  });
+
   await sendEmail({
     to: user.email,
-    subject: "Email Verification",
-    html: `<p>Please verify your email by clicking the link below:</p><a href="${verificationLink}">Verify Email</a>`,
+    subject: "Email Verification - Fitness Muse",
+    html: emailBody,
   });
 };
 

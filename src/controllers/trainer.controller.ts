@@ -6,6 +6,7 @@ import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 import { sendEmail } from "../utils/sendEmail";
 import { asyncHandler } from "../utils/asyncHandler";
+import { generateEmailTemplate } from "../utils/emailTemplate";
 
 // Function to generate a secure random token
 const generateToken = () => crypto.randomBytes(32).toString("hex");
@@ -63,31 +64,52 @@ export const inviteTrainers = asyncHandler(
       // Generate a 6-digit MPIN and a secure invitation token
       const mpin = generateMPIN();
       const invitationToken = generateToken();
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 3); // Token expires in 3 days
 
-      // Create a new trainer document with the initial invitation details
-      const trainer = new Trainer({
-        email,
-        mpin,
-        gyms: [{ gymId, gymName: gym.name }],
-        isInvitationAccepted: false,
-        invitationToken,
-      });
-
-      // Save the trainer
-      await trainer.save();
+      // Check if the trainer exists and add the gym details; otherwise, create a new trainer
+      const trainer = await Trainer.findOneAndUpdate(
+        { email },
+        {
+          $push: {
+            gyms: {
+              gymId,
+              gymName: gym.name,
+              mpin,
+              isInvitationAccepted: false, // Set default value
+              invitationTokens: {
+                token: invitationToken,
+                expiresAt,
+              },
+            },
+          },
+          $setOnInsert: { isInvitationAccepted: false },
+        },
+        { new: true, upsert: true }
+      );
 
       // Sanitize the trainer data before sending the response
       const sanitizedTrainer = await Trainer.findById(trainer._id).select(
-        "-mpin -invitationToken"
+        "-mpin -gyms.invitationTokens.token"
       );
 
       // Send the invitation email
       const confirmationLink = `${process.env.FRONTEND_URL}/trainer/confirm-invite?token=${invitationToken}`;
+
+      const emailBody = generateEmailTemplate({
+        title: "You've Been Invited!",
+        bodyContent: `Hello! You have been invited to join the ${gym.name}. Use the MPIN below as your Login creds. Make sure you don't share this to nobody`,
+        mpin: mpin,
+        buttonText: "Accept Invitation",
+        buttonLink: confirmationLink,
+        gymName: gym.name,
+      });
+
       try {
         await sendEmail({
           to: email,
-          subject: "Gym Invitation",
-          text: `You have been invited to join the gym. Your MPIN is ${mpin}. Please click the link to accept the invitation: ${confirmationLink}`,
+          subject: `Invitation to Join ${gym.name}`,
+          html: emailBody,
         });
         invitedTrainers.push(sanitizedTrainer); // Add sanitized trainer to invitedTrainers
       } catch (error) {
@@ -128,22 +150,35 @@ export const acceptTrainerInvitation = asyncHandler(
 
     // Find the trainer with the matching invitation token
     const trainer = await Trainer.findOne({
-      invitationToken: token,
-      isInvitationAccepted: false,
+      "gyms.invitationTokens.token": token,
+      "gyms.invitationTokens.expiresAt": { $gt: new Date() }, // Check if token is not expired
+      "gyms.isInvitationAccepted": false,
     });
 
     if (!trainer) {
       throw new ApiError(400, "Invalid or expired invitation link.");
     }
 
+    // Find the specific gym details to update
+    const gymIndex = trainer.gyms.findIndex((gym) =>
+      gym.invitationTokens.some((t) => t.token === token)
+    );
+
+    if (gymIndex === -1) {
+      throw new ApiError(400, "Gym not found for this invitation.");
+    }
+
     // Update the trainer's acceptance status and clear the token
-    trainer.isInvitationAccepted = true;
-    trainer.invitationToken = "";
+    trainer.gyms[gymIndex].isInvitationAccepted = true;
+    trainer.gyms[gymIndex].invitationTokens = trainer.gyms[
+      gymIndex
+    ].invitationTokens.filter((invitation) => invitation.token !== token);
+
     await trainer.save();
 
     // Sanitize the trainer data to avoid exposing sensitive fields
     const sanitizedTrainer = await Trainer.findById(trainer._id).select(
-      "-mpin -invitationToken"
+      "-mpin -gyms.invitationTokens.token"
     );
 
     res
@@ -178,9 +213,14 @@ export const getTrainersForGym = asyncHandler(
     // Sanitize the response to show only relevant gym details for each trainer
     const sanitizedTrainers = trainers.map((trainer) => ({
       email: trainer.email,
-      name: trainer.name,
-      isInvitationAccepted: trainer.isInvitationAccepted,
-      gyms: trainer.gyms.filter((g) => g.gymId.toString() === gymId),
+      gyms: trainer.gyms
+        .filter((g) => g.gymId.toString() === gymId)
+        .map((g) => ({
+          gymId: g.gymId,
+          gymName: g.gymName,
+          mpin: g.mpin,
+          isInvitationAccepted: g.isInvitationAccepted,
+        })),
     }));
 
     res

@@ -1,13 +1,24 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 
+// Interface for the Gym details within the Trainer document
+interface IGymDetails {
+  gymId: mongoose.Types.ObjectId;
+  gymName: string;
+  mpin: string;
+  isInvitationAccepted: boolean;
+  invitationTokens: IInvitationToken[];
+}
+
+// Interface for the Invitation Token details
+interface IInvitationToken {
+  token: string;
+  expiresAt: Date;
+}
+
 // Interface for Trainer document
 export interface ITrainer extends Document {
   email: string;
-  name: string;
-  mpin: string;
-  isInvitationAccepted: boolean;
-  gyms: { gymId: mongoose.Types.ObjectId; gymName: string }[];
-  invitationToken: string;
+  gyms: IGymDetails[];
 }
 
 // Trainer schema definition
@@ -20,34 +31,20 @@ const trainerSchema = new Schema<ITrainer>(
       trim: true,
       unique: true,
     },
-    name: {
-      type: String,
-      trim: true,
-    },
-    mpin: {
-      type: String,
-      required: true,
-    },
-    isInvitationAccepted: {
-      type: Boolean,
-      default: false,
-    },
     gyms: [
       {
-        gymId: {
-          type: Schema.Types.ObjectId,
-          ref: "Gym",
-          required: true,
-        },
-        gymName: {
-          type: String,
-          required: true,
-        },
+        gymId: { type: Schema.Types.ObjectId, ref: "Gym", required: true },
+        gymName: { type: String, required: true },
+        mpin: { type: String, required: true },
+        isInvitationAccepted: { type: Boolean, default: false }, // Moved here
+        invitationTokens: [
+          {
+            token: { type: String, required: true },
+            expiresAt: { type: Date, required: true },
+          },
+        ], // Moved here
       },
     ],
-    invitationToken: {
-      type: String,
-    },
   },
   {
     timestamps: true,
