@@ -1,5 +1,6 @@
 import { NextFunction, Request } from "express";
 import { User } from "../models/user.model";
+import { Trainer } from "../models/trainer.model";
 import { ApiError } from "../utils/ApiError";
 import { asyncHandler } from "../utils/asyncHandler";
 import jwt, { JwtPayload } from "jsonwebtoken";
@@ -10,7 +11,7 @@ interface DecodedToken extends JwtPayload {
 }
 
 /**
- * Middleware to verify JWT and attach user to request object.
+ * Middleware to verify JWT and attach user or trainer to the request object
  */
 export const verifyJWT = asyncHandler(
   async (req: Request, _, next: NextFunction) => {
@@ -30,10 +31,14 @@ export const verifyJWT = asyncHandler(
         process.env.ACCESS_TOKEN_SECRET as string
       ) as DecodedToken;
 
-      // Find user by ID
-      const user = await User.findById(decodedToken?._id).select(
-        "-password -refreshToken"
-      );
+      // Check for the user in both User and Trainer collections
+      const user =
+        (await User.findById(decodedToken?._id).select(
+          "-password -refreshToken"
+        )) ||
+        (await Trainer.findById(decodedToken?._id).select(
+          "-mpin -gyms.invitationTokens.token"
+        ));
 
       if (!user) {
         throw new ApiError(401, "Unauthorized request: Invalid token.");

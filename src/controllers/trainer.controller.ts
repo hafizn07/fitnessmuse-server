@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import crypto from "crypto";
 import { Trainer } from "../models/trainer.model";
+import { MPIN } from "../models/mpin.model";
 import { Gym } from "../models/gym.model";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
@@ -75,7 +76,6 @@ export const inviteTrainers = asyncHandler(
             gyms: {
               gymId,
               gymName: gym.name,
-              mpin,
               isInvitationAccepted: false, // Set default value
               invitationTokens: {
                 token: invitationToken,
@@ -92,6 +92,14 @@ export const inviteTrainers = asyncHandler(
       const sanitizedTrainer = await Trainer.findById(trainer._id).select(
         "-mpin -gyms.invitationTokens.token"
       );
+
+      // Store MPIN in the MPIN model
+      const mpinRecord = new MPIN({
+        trainerId: trainer._id,
+        gymId: gym._id,
+        mpin,
+      });
+      await mpinRecord.save();
 
       // Send the invitation email
       const confirmationLink = `${process.env.FRONTEND_URL}/trainer/confirm-invite?token=${invitationToken}`;
@@ -120,7 +128,7 @@ export const inviteTrainers = asyncHandler(
       }
     }
 
-    res
+    return res
       .status(201)
       .json(
         new ApiResponse(
@@ -181,7 +189,7 @@ export const acceptTrainerInvitation = asyncHandler(
       "-mpin -gyms.invitationTokens.token"
     );
 
-    res
+    return res
       .status(200)
       .json(
         new ApiResponse(
@@ -210,20 +218,36 @@ export const getTrainersForGym = asyncHandler(
       throw new ApiError(404, "No trainers found for this gym");
     }
 
-    // Sanitize the response to show only relevant gym details for each trainer
-    const sanitizedTrainers = trainers.map((trainer) => ({
-      email: trainer.email,
-      gyms: trainer.gyms
-        .filter((g) => g.gymId.toString() === gymId)
-        .map((g) => ({
+    // Prepare an array of promises for fetching MPINs
+    const sanitizedTrainersPromises = trainers.map(async (trainer) => {
+      const gyms = trainer.gyms.filter((g) => g.gymId.toString() === gymId);
+
+      // Fetch MPINs for each trainer that accepted the invitation
+      const mpinPromises = gyms.map(async (g) => {
+        if (g.isInvitationAccepted) {
+          const mpinDoc = await MPIN.findOne({ trainerId: trainer._id, gymId });
+          return mpinDoc?.mpin || null; // Optional chaining to avoid TypeScript error
+        }
+        return null; // Return null if invitation not accepted
+      });
+
+      const mpins = await Promise.all(mpinPromises);
+
+      return {
+        email: trainer.email,
+        gyms: gyms.map((g, index) => ({
           gymId: g.gymId,
           gymName: g.gymName,
-          mpin: g.mpin,
           isInvitationAccepted: g.isInvitationAccepted,
+          mpin: mpins[index], // Corresponding MPIN
         })),
-    }));
+      };
+    });
 
-    res
+    // Resolve all promises to get the sanitized trainers
+    const sanitizedTrainers = await Promise.all(sanitizedTrainersPromises);
+
+    return res
       .status(200)
       .json(
         new ApiResponse(
@@ -232,5 +256,57 @@ export const getTrainersForGym = asyncHandler(
           "Trainers retrieved successfully"
         )
       );
+  }
+);
+
+/**
+ * @description Trainer login using email and MPIN
+ * @route POST /trainers/login
+ * @access Public
+ */
+export const loginTrainer = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { email, mpin } = req.body;
+
+    // Validations
+    if (!email || !mpin) {
+      throw new ApiError(400, "Email and MPIN are required.");
+    }
+
+    // Find the trainer by email
+    const trainer = await Trainer.findOne({ email });
+    if (!trainer) {
+      throw new ApiError(401, "Invalid email or MPIN.");
+    }
+
+    // Check MPIN stored in the MPIN model for all gyms associated with the trainer
+    const mpinRecord = await MPIN.findOne({ trainerId: trainer._id });
+
+    if (!mpinRecord || !(await mpinRecord.isMpinCorrect(mpin))) {
+      throw new ApiError(401, "Invalid MPIN.");
+    }
+
+    // Retrieve the specific gym details where the MPIN is valid
+    const gymDetails = await MPIN.findOne({
+      trainerId: trainer._id,
+    }).populate("gymId");
+
+    if (!gymDetails) {
+      throw new ApiError(401, "Invalid MPIN for the associated gym.");
+    }
+
+    // Generate JWT using model method
+    const token = trainer.generateAccessToken();
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          token,
+          gymId: gymDetails.gymId._id,
+        },
+        "Login successful."
+      )
+    );
   }
 );
